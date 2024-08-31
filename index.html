@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solaris Executor</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            color: #c5c6c7;
+            font-family: Arial, sans-serif;
+        }
+
+        #editorContainer {
+            height: calc(100% - 200px);
+        }
+
+        #controls {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background-color: #333;
+            align-items: center;
+        }
+
+        #controls > button {
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            background-color: #555;
+            color: #fff;
+            border-radius: 5px;
+        }
+
+        #controls > button:hover {
+            background-color: #777;
+        }
+
+        #controls > #toggleSearchButton {
+            background-color: #555;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #toggleSearchButton::after {
+            content: '▼';
+            font-size: 12px;
+            margin-left: 10px;
+            transition: transform 0.3s ease;
+        }
+
+        #toggleSearchButton.open::after {
+            transform: rotate(180deg);
+        }
+
+        #scriptSearchContainer {
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            background-color: #333;
+            margin-top: 10px;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+            overflow: hidden;
+        }
+
+        #scriptSearchContainer.hidden {
+            max-height: 0;
+            padding: 0;
+        }
+
+        #searchInput {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        .notification {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            color: #fff;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+            transform: translateY(-20px);
+            z-index: 1000;
+            width: 300px;
+        }
+
+        .notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .notification.green {
+            background-color: #4caf50;
+        }
+
+        .notification.red {
+            background-color: #f44336;
+        }
+
+        .notification.yellow {
+            background-color: #ffeb3b;
+            color: #333;
+        }
+
+        #scriptList {
+            height: 200px;
+            overflow-y: auto;
+            background-color: #2c2c2c;
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #scriptList ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #scriptList li {
+            padding: 5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            background-color: #444;
+            border-radius: 5px;
+        }
+
+        #scriptList li:hover {
+            background-color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button id="executeButton">Execute</button>
+        <button id="clearButton">Clear</button>
+        <button id="toggleSearchButton">Script Search</button>
+    </div>
+
+    <div id="scriptSearchContainer">
+        <input type="text" id="searchInput" placeholder="Search for scripts..." />
+        <button id="searchButton">Search</button>
+        <div id="scriptList">
+            <ul id="scriptItems"></ul>
+        </div>
+    </div>
+
+    <div id="editorContainer"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.21.2/min/vs/loader.min.js"></script>
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.21.2/min/vs' }});
+        require(['vs/editor/editor.main'], function() {
+            monaco.languages.register({id: "luau"})
+            const keywords = [
+            'function', 'local', 'end', 'return', 'if', 'else', 'for', 'while',
+            'true', 'false', 'nil', "in", "and", "or"
+        ];
+        const functions = [
+    'assert', 'collectgarbage', 'coroutine.create', 'coroutine.resume', 'coroutine.running',
+    'coroutine.status', 'coroutine.wrap', 'coroutine.yield', 'dofile', 'error', 'gcinfo',
+    'getfenv', 'getmetatable', 'io.close', 'io.flush', 'io.open', 'io.read', 'io.stderr',
+    'io.stdin', 'io.stdout', 'io.tmpfile', 'io.write', 'load', 'loadfile', 'loadstring', 'math.abs',
+    'math.acos', 'math.asin', 'math.atan', 'math.atan2', 'math.ceil', 'math.cos', 'math.deg',
+    'math.exp', 'math.floor', 'math.fmod', 'math.frexp', 'math.huge', 'math.ldexp', 'math.log',
+    'math.log10', 'math.max', 'math.min', 'math.modf', 'math.pi', 'math.pow', 'math.rad',
+    'math.random', 'math.randomseed', 'math.sin', 'math.sinh', 'math.sqrt', 'math.tan', 'math.tanh',
+    'next', 'not', 'pairs', 'pcall', 'print', 'rawequal', 'rawget', 'rawlen', 'rawset',
+    'select', 'setfenv', 'setmetatable', 'string.byte', 'string.char', 'string.dump', 'string.find',
+    'string.format', 'string.gmatch', 'string.gsub', 'string.len', 'string.lower', 'string.match',
+    'string.rep', 'string.reverse', 'string.sub', 'string.upper', 'table.concat', 'table.insert',
+    'table.maxn', 'table.remove', 'table.sort', 'tonumber', 'tostring', 'type', 'unpack',
+    'warn', "loadstring"
+];
+const variables = [
+    'game', 'workspace', 'players', 'script', 'services', 'replicatedStorage',
+    'serverStorage', 'serverScriptService', 'starterGui', 'starterPack', 'teams',
+    'lighting', 'collectionService', 'runService', 'debris', 'httpService', 'userInputService',
+    'Players', 'Workspace', 'Lighting', 'Teams', 'ReplicatedStorage', 'ServerScriptService',
+    'ServerStorage', 'StarterGui', 'StarterPack', "LocalPlayer", "Character", "Humanoid", "WalkSpeed", "JumpPower"
+];
+
+        monaco.editor.defineTheme('luauTheme', {
+    base: 'vs-dark', // or 'vs' for light theme
+    inherit: true,
+    rules: [
+        { token: 'function', foreground: 'ffcc00' }, // Set color for functions
+        { token: 'keyword', foreground: '569cd6' },
+        { token: 'variable', foreground: '9cdcfe' },
+        { token: 'string', foreground: 'ce9178' },
+        { token: 'number', foreground: 'b5cea8' }
+    ],
+    colors: {
+            'editor.foreground': '#d4d4d4',
+            'editor.background': '#1e1e1e',
+            'editorCursor.foreground': '#aeafad',
+            'editor.lineHighlightBackground': '#2c2c2c',
+            'editorLineNumber.foreground': '#858585',
+            'editor.selectionBackground': '#264f78',
+            'editor.inactiveSelectionBackground': '#3a3d41'
+        }
+    });
+
+
+        monaco.languages.setMonarchTokensProvider('luau', {
+            tokenizer: {
+                root: [
+                    [/\b(?:function|local|end|return|if|else|for|while)\b/, 'keyword'],
+                    [/\b(?:true|false|nil|or|and|in)\b/, 'constant'],
+                    [/\b(?:loadstring|game|LocalPlayer|Character|Humanoid|WalkSpeed|JumpPower|workspace|players|script|services|replicatedStorage|serverStorage|serverScriptService|starterGui|starterPack|teams|lighting|collectionService|runService|debris|httpService|userInputService|Players|Workspace|Lighting|Teams|ReplicatedStorage|ServerScriptService|ServerStorage|StarterGui|StarterPack)\b/, 'variable'],                   [/\b(?:assert|collectgarbage|coroutine.create|coroutine.resume|coroutine.running|coroutine.status|coroutine.wrap|coroutine.yield|dofile|error|gcinfo|getfenv|getmetatable|io.close|io.flush|io.open|io.read|io.stderr|io.stdin|io.stdout|io.tmpfile|io.write|load|loadfile|loadstring|math.abs|math.acos|math.asin|math.atan|math.atan2|math.ceil|math.cos|math.deg|math.exp|math.floor|math.fmod|math.frexp|math.huge|math.ldexp|math.log|math.log10|math.max|math.min|math.modf|math.pi|math.pow|math.rad|math.random|math.randomseed|math.sin|math.sinh|math.sqrt|math.tan|math.tanh|next|not|pairs|pcall|print|rawequal|rawget|rawlen|rawset|select|setfenv|setmetatable|string.byte|string.char|string.dump|string.find|string.format|string.gmatch|string.gsub|string.len|string.lower|string.match|string.rep|string.reverse|string.sub|string.upper|table.concat|table.insert|table.maxn|table.remove|table.sort|tonumber|tostring|type|unpack|warn)\b/, 'function'],
+                    [/[a-zA-Z_][a-zA-Z0-9_]*/, {
+                        cases: {
+                            'keywords': 'keywords',
+                            'default': 'variable',
+                            'variable': 'variable',
+                            'functions': 'functions',
+                        }
+                    }],
+                    [/".*?"/, 'string'],
+                    [/\d+/, 'number'],
+                    [/[{}()\[\]]/, '@brackets']
+                ]
+            }
+        });
+        monaco.editor.setTheme('luauTheme');
+        monaco.languages.setLanguageConfiguration('luau', {
+            brackets: [
+                ['{', '}'],
+                ['[', ']'],
+                ['(', ')']
+            ],
+            autoClosingPairs: [
+                { open: '{', close: '}' },
+                { open: '[', close: ']' },
+                { open: '(', close: ')' },
+                { open: '"', close: '"' }
+            ]
+        });
+        monaco.languages.registerCompletionItemProvider('luau', {
+    provideCompletionItems: function(model, position) {
+        const suggestions = [
+            ...keywords.map(keyword => ({
+                label: keyword,
+                kind: monaco.languages.CompletionItemKind.Keyword,
+                insertText: keyword,
+                detail: 'Keyword'
+            })),
+            ...functions.map(func => ({
+                label: func,
+                kind: monaco.languages.CompletionItemKind.Function,
+                insertText: func + "()",
+                detail: 'Global function'
+            })),
+            ...variables.map(variable => ({
+                label: variable,
+                kind: monaco.languages.CompletionItemKind.Variable,
+                insertText: variable,
+                detail: 'Global variable'
+            }))
+        ];
+
+        return { suggestions: suggestions };
+    }
+});
+
+            var editor = monaco.editor.create(document.getElementById('editorContainer'), {
+                value: [
+                    'print("Welcome to Jules!")'
+                ].join('\n'),
+                language: 'luau',
+                theme: 'luauTheme'
+            });
+
+            function showNotification(type, title, text) {
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.innerHTML = `<strong>${title}</strong><br>${text}`;
+                document.body.appendChild(notification);
+                setTimeout(() => {
+                    notification.classList.add('show');
+                }, 10);
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 300);
+                }, 3000);
+            }
+
+            function executeScript(scriptContent) {
+                showNotification('yellow', 'Executing..', 'Executing Script..');
+
+                const ws = new WebSocket("ws://localhost:8050/ws");
+
+                ws.onopen = function() {
+                    ws.send(scriptContent);
+                };
+
+                ws.onmessage = function(event) {
+                    try {
+                        const response = JSON.parse(event.data);
+                        const resultText = response.text;
+
+                        if (resultText) {
+                            showNotification('green', 'Executed!', 'Successfully executed script.');
+                        } else {
+                            showNotification('red', 'Failed!', 'Failed to execute, probably not injected yet!');
+                        }
+                    } catch (e) {
+                        showNotification('red', 'Failed!', 'Failed to execute, probably not injected yet!');
+                    }
+                };
+
+                ws.onerror = function() {
+                    showNotification('red', 'Failed!', 'Failed to execute, probably not injected yet!');
+                };
+            }
+
+            document.getElementById('executeButton').addEventListener('click', function() {
+                const editorContent = editor.getValue();
+                executeScript(editorContent);
+            });
+
+            document.getElementById('clearButton').addEventListener('click', function() {
+                editor.setValue('');
+            });
+
+            document.getElementById('searchButton').addEventListener('click', function() {
+                const query = document.getElementById('searchInput').value.trim();
+
+                if (!query) return;
+
+                fetch(`https://scriptblox-api-proxy.vercel.app/api/search?q=${encodeURIComponent(query)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        const scripts = data.result?.scripts || [];
+                        const scriptItems = document.getElementById('scriptItems');
+                        scriptItems.innerHTML = ''; // Clear the list
+
+                        scripts.forEach(script => {
+                            const li = document.createElement('li');
+                            li.textContent = script.title;
+
+                            const buttonContainer = document.createElement('div');
+                            buttonContainer.style.display = 'flex';
+                            buttonContainer.style.alignItems = 'center';
+
+                            const loadButton = document.createElement('button');
+                            loadButton.textContent = 'Load to Editor';
+                            loadButton.style.marginRight = '10px';
+                            loadButton.addEventListener('click', () => {
+                                editor.setValue(script.script);
+                            });
+
+                            const executeBtn = document.createElement('button');
+                            executeBtn.textContent = 'Execute';
+                            executeBtn.addEventListener('click', () => {
+                                executeScript(script.script);
+                            });
+
+                            buttonContainer.appendChild(loadButton);
+                            buttonContainer.appendChild(executeBtn);
+
+                            li.appendChild(buttonContainer);
+                            scriptItems.appendChild(li);
+                        });
+                    })
+                    .catch(error => console.error('Failed to load scripts:', error));
+            });
+
+            document.getElementById('toggleSearchButton').addEventListener('click', function() {
+                const searchContainer = document.getElementById('scriptSearchContainer');
+                if (searchContainer.classList.contains('hidden')) {
+                    searchContainer.classList.remove('hidden');
+                    this.classList.add('open');
+                } else {
+                    searchContainer.classList.add('hidden');
+                    this.classList.remove('open');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
